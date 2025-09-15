@@ -25,8 +25,10 @@ mkModel = ()
 
 data Action
   = ActionError MisoString
-  | ActionAsk 
-  | ActionHandle Value
+  | ActionAskBuckets
+  | ActionHandleBuckets [Value]
+  | ActionAskFiles
+  | ActionHandleFiles [Value]
 
 -------------------------------------------------------------------------------
 -- update
@@ -38,10 +40,16 @@ updateModel = \case
   ActionError errorMessage ->
     io_ $ consoleError errorMessage
 
-  ActionAsk ->
-    listBuckets' ActionHandle ActionError
+  ActionAskBuckets ->
+    listBuckets ActionHandleBuckets ActionError
 
-  ActionHandle v ->
+  ActionHandleBuckets v ->
+    io_ $ consoleLog $ ms $ show v
+
+  ActionAskFiles ->
+    listAllFiles "avatars" "test" ActionHandleFiles ActionError
+
+  ActionHandleFiles v ->
     io_ $ consoleLog $ ms $ show v
 
 -------------------------------------------------------------------------------
@@ -51,7 +59,8 @@ updateModel = \case
 viewModel :: Model -> View Model Action
 viewModel _ = div_ []
   [ p_ [] [ "TODO" ]
-  , button_ [ onClick ActionAsk ] [ "ask supabase" ]
+  , button_ [ onClick ActionAskBuckets ] [ "list buckets" ]
+  , button_ [ onClick ActionAskFiles ] [ "list all files" ]
   ]
 
 -------------------------------------------------------------------------------
@@ -65,26 +74,39 @@ main =
     { scripts =
        [ Module
           """
+
           import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
           const supabase_url = 'https://cmeicmtkrdbrelovyssz.supabase.co';
           const supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtZWljbXRrcmRicmVsb3Z5c3N6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0NTM2MTMsImV4cCI6MjA3MjAyOTYxM30._ga2HbuYt8JJTKYEQZc5ACAP2VT3KyjcbbV1Og0wEG0' ;
           const supabase = createClient(supabase_url, supabase_key);
           globalThis['supabase'] = supabase;
-          // console.log('Supabase Instance: ', supabase)
+          console.log('Supabase Instance: ', supabase)
 
           // dmj: usage like: runSupabase('auth','signUp', args, successCallback, errorCallback);
           globalThis['runSupabase'] = function (namespace, fnName, args, successful, errorful) {
-            globalThis['supabase'][namespace][fnName](this, args).then(({ data, error }) => {
-              if (data) successful(data);
-              if (error) errorful(error);
-            });
+            const p = ({ data, error }) => {
+                if (data) successful(data);
+                if (error) errorful(error);
+              };
+            if (Array.isArray(args) && !args.length>0) {
+              globalThis['supabase'][namespace][fnName](args).then(p);
+            } else {
+              globalThis['supabase'][namespace][fnName]().then(p);
+            }
           }
-          globalThis['runSupabaseFrom'] = function (namespace, from, fnName, args, successful, errorful) {
-            globalThis['supabase'][namespace]['from'](from)[fnName](this, args).then(({ data, error }) => {
-              if (data) successful(data);
-              if (error) errorful(error);
-            });
+
+          globalThis['runSupabaseFrom'] = function (namespace, fromArg, fnName, args, successful, errorful) {
+            const p = ({ data, error }) => {
+                if (data) successful(data);
+                if (error) errorful(error);
+              };
+            if (Array.isArray(args) && args.length>0) {
+              globalThis['supabase'][namespace].from(fromArg)[fnName](args).then(p);
+            } else {
+              globalThis['supabase'][namespace].from(fromArg)[fnName]().then(p);
+            }
           }
+
           """
        ]
     }

@@ -13,6 +13,6 @@ source-repository-package
 
 source-repository-package
   type: git
-  location: file:///home/test/depots/github/juliendehos/supabase-miso-test.git
-  -- location: https://github.com/juliendehos/supabase-miso.git
+  location: https://github.com/juliendehos/supabase-miso.git
+  tag: 170b5f0
 
