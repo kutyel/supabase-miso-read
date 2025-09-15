@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>supabase-miso-test</title>
+
+    <script src="index.js" type="module">
+
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+        const supabase_url = 'https://cmeicmtkrdbrelovyssz.supabase.co';
+        const supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtZWljbXRrcmRicmVsb3Z5c3N6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0NTM2MTMsImV4cCI6MjA3MjAyOTYxM30._ga2HbuYt8JJTKYEQZc5ACAP2VT3KyjcbbV1Og0wEG0' ;
+        const supabase = createClient(supabase_url, supabase_key);
+        globalThis['supabase'] = supabase;
+        // console.log('Supabase Instance: ', supabase);
+
+        // dmj: usage like: runSupabase('auth','signUp', args, successCallback, errorCallback);
+        globalThis['runSupabase'] = function (namespace, fnName, args, successful, errorful) {
+          globalThis['supabase'][namespace][fnName](args).then(({ data, error }) => {
+            if (data) successful(data);
+            if (error) errorful(error);
+          });
+        }
+        globalThis['runSupabaseFrom'] = function (namespace, from, fnName, args, successful, errorful) {
+          globalThis['supabase'][namespace]['from'](from)[fnName](this, args).then(({ data, error }) => {
+            if (data) successful(data);
+            if (error) errorful(error);
+          });
+        }
+
+    </script> 
+
+  </head>
+
+  <body>
+    <h1>supabase-miso-test</h1>
+    <script src="index.js" type="module"></script>
+  </body>
+</html>
+

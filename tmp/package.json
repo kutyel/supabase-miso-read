@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@supabase/supabase-js": "^2.56.1"
+  },
+
+  "scripts": {
+    "supabase1": "node supabase1.mjs"
+  }
+}

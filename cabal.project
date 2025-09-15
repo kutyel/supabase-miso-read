@@ -1,0 +1,18 @@
+packages:
+  .
+
+allow-newer:
+  all:base
+
+flags: +template-haskell
+
+source-repository-package
+  type: git
+  location: https://github.com/dmjio/miso.git
+  tag: 22df3427eb1e004d6a993de08abf68a757eff731
+
+source-repository-package
+  type: git
+  location: file:///home/test/depots/github/juliendehos/supabase-miso-test.git
+  -- location: https://github.com/juliendehos/supabase-miso.git
+
