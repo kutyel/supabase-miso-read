@@ -8,6 +8,7 @@ import Data.Aeson
 import Miso
 import Miso.Html.Element as H
 import Miso.Html.Event as E
+import Supabase.Miso.Auth
 import Supabase.Miso.Storage
 
 -------------------------------------------------------------------------------
