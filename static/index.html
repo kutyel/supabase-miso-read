@@ -3,13 +3,65 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>supabase-miso-test</title>
+    <title>Miso Login</title>
+
+    <!-- Basecoat CSS (miso-ui) -->
+    <link rel="stylesheet" href="https://unpkg.com/basecoat@0.3.6/index.css">
+
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: hsl(var(--muted));
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .login-container {
+        width: 100%;
+        max-width: 400px;
+        padding: 1rem;
+      }
+      .card {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--border));
+        border-radius: var(--radius);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .card-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        padding: 1.5rem 1.5rem 0;
+        margin: 0;
+        color: hsl(var(--card-foreground));
+      }
+      .card-content {
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+      .error-message {
+        color: hsl(var(--destructive));
+        font-size: 0.875rem;
+        margin: 0;
+      }
+      .btn-primary {
+        width: 100%;
+      }
+    </style>
 
     <script type="module">
 
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-        const supabase_url = 'https://cmeicmtkrdbrelovyssz.supabase.co';
-        const supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtZWljbXRrcmRicmVsb3Z5c3N6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0NTM2MTMsImV4cCI6MjA3MjAyOTYxM30._ga2HbuYt8JJTKYEQZc5ACAP2VT3KyjcbbV1Og0wEG0' ;
+        const supabase_url = 'https://ljknwlqyxougfijkyybq.supabase.co';
+        const supabase_key = 'sb_publishable_Ga2P7LzIDbJjbq3kka6-Ag_eYd91LLk';
         const supabase = createClient(supabase_url, supabase_key);
         globalThis['supabase'] = supabase;
         console.log('Supabase Instance: ', supabase);
@@ -28,10 +80,6 @@
         }
 
         globalThis['runSupabaseFrom'] = function (namespace, fromArg, fnName, args, successful, errorful) {
-          // console.log(namespace);
-          // console.log(fromArg);
-          // console.log(fnName);
-          // console.log(args);
           const p = ({ data, error }) => {
               if (data) successful(data);
               if (error) errorful(error);
@@ -43,13 +91,11 @@
           }
         }
 
-    </script> 
+    </script>
 
   </head>
 
   <body>
-    <h1>supabase-miso-test</h1>
     <script src="index.js" type="module"></script>
   </body>
 </html>
-
