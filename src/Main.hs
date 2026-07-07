@@ -54,6 +54,7 @@ data Model = Model
   , selectedDate :: MisoString -- ^ ISO date, e.g. "2026-07-07"
   , readings :: [Reading]
   , loadingReadings :: Bool
+  , chartDrawn :: Bool -- ^ once true, keep the old chart visible while reloading
   , lastInserted :: Maybe Int -- ^ id of the reading added last, for undo
   }
   deriving (Eq)
@@ -99,6 +100,7 @@ mkModel =
     , selectedDate = ""
     , readings = []
     , loadingReadings = False
+    , chartDrawn = False
     , lastInserted = Nothing
     }
 
@@ -247,6 +249,7 @@ updateModel = \case
         { authState = LoggedOut
         , notice = Nothing
         , readings = []
+        , chartDrawn = False
         , lastInserted = Nothing
         , password = ""
         }
@@ -337,6 +340,7 @@ fetchReadings = do
 -- | Push the readings of the selected year into the Google Charts calendar.
 redrawCalendar :: Effect parent props Model Action
 redrawCalendar = do
+  modify $ \m -> m {chartDrawn = True}
   m <- get
   io_ (Interop.drawCalendar (calendarRows m))
 
@@ -495,7 +499,7 @@ viewApp user Model {..} =
     , div_
         [P.class_ "chart-wrap"]
         [ div_ [P.id_ "calendar-chart"] []
-        , if loadingReadings then spinner else text ""
+        , if loadingReadings && not chartDrawn then spinner else text ""
         ]
     ]
   where
