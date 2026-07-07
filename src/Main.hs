@@ -1,219 +1,544 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultilineStrings #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
-import Data.Aeson (Value)
+-- | Read the Bible — a reading tracker built with Miso + Supabase.
+--
+-- Port of https://github.com/kutyel/read-the-bible-svelte (Svelte +
+-- Firebase) to Haskell (Miso, WASM) + Supabase, drawing the yearly
+-- calendar heatmap with Google Charts.
+module Main (main) where
+
+import Data.List (sortOn)
+import Data.Time
+  ( Day
+  , defaultTimeLocale
+  , formatTime
+  , fromGregorian
+  , getCurrentTime
+  , parseTimeM
+  , toGregorian
+  , utctDay
+  )
+
 import Miso
 import Miso.Html.Element as H
 import Miso.Html.Event as E
 import Miso.Html.Property as P
-import Supabase.Miso.Auth
+import Miso.JSON
+import Miso.String (MisoString, fromMisoStringEither, ms)
+
+import Bible qualified
+import Interop qualified
+import Supabase.Miso.Database
+  ( DeleteOptions (..)
+  , FetchOptions (..)
+  , deleteFrom
+  , eq
+  , gte
+  , lte
+  , selectWithFilters
+  )
 
 -------------------------------------------------------------------------------
 -- model
 -------------------------------------------------------------------------------
 
 data Model = Model
-    { email :: MisoString
-    , password :: MisoString
-    , authState :: AuthState
-    , errorMsg :: Maybe MisoString
-    }
+  { authState :: AuthState
+  , email :: MisoString
+  , password :: MisoString
+  , notice :: Maybe Notice
+  , today :: Day
+  , selectedYear :: Integer
+  , selectedBook :: MisoString
+  , selectedChapter :: Int
+  , selectedDate :: MisoString -- ^ ISO date, e.g. "2026-07-07"
+  , readings :: [Reading]
+  , loadingReadings :: Bool
+  , lastInserted :: Maybe Int -- ^ id of the reading added last, for undo
+  }
+  deriving (Eq)
 
 data AuthState
-    = LoggedOut
-    | LoggingIn
-    | LoggedIn User
+  = Booting -- ^ waiting for getSession on startup
+  | LoggedOut
+  | LoggingIn
+  | LoggedIn UserInfo
+  deriving (Eq)
+
+data UserInfo = UserInfo
+  { userId :: MisoString
+  , userEmail :: MisoString
+  }
+  deriving (Eq)
+
+data Notice = ErrorNotice MisoString | InfoNotice MisoString
+  deriving (Eq)
+
+data Reading = Reading
+  { readingId :: Int
+  , readingBook :: MisoString
+  , readingChapter :: Int
+  , readingDate :: MisoString
+  }
+  deriving (Eq)
+
+firstYear :: Integer
+firstYear = 2020
 
 mkModel :: Model
 mkModel =
-    Model
-        { email = ""
-        , password = ""
-        , authState = LoggedOut
-        , errorMsg = Nothing
-        }
+  Model
+    { authState = Booting
+    , email = ""
+    , password = ""
+    , notice = Nothing
+    , today = fromGregorian firstYear 1 1
+    , selectedYear = firstYear
+    , selectedBook = "Genesis"
+    , selectedChapter = 1
+    , selectedDate = ""
+    , readings = []
+    , loadingReadings = False
+    , lastInserted = Nothing
+    }
+
+-------------------------------------------------------------------------------
+-- JSON payloads
+-------------------------------------------------------------------------------
+
+instance FromJSON UserInfo where
+  parseJSON = withObject "user" $ \o ->
+    UserInfo <$> o .: "id" <*> o .: "email"
+
+-- | The only part of a session object we care about: its user.
+newtype SessionUser = SessionUser UserInfo
+
+instance FromJSON SessionUser where
+  parseJSON = withObject "session" $ \o -> SessionUser <$> o .: "user"
+
+-- | Payload of @auth.getSession@: @{ session: null | { user, ... } }@.
+newtype SessionPayload = SessionPayload (Maybe UserInfo)
+
+instance FromJSON SessionPayload where
+  parseJSON = withObject "session payload" $ \o -> do
+    mSession <- o .:? "session"
+    case mSession of
+      Nothing -> pure (SessionPayload Nothing)
+      Just Null -> pure (SessionPayload Nothing)
+      Just sessionValue -> case fromJSON sessionValue of
+        Success (SessionUser user) -> pure (SessionPayload (Just user))
+        Error err -> fail err
+
+-- | Payload of @auth.signInWithPassword@ / @auth.signUp@:
+-- @{ user, session: null | {...} }@. A null session after sign-up means
+-- the account still needs email confirmation.
+data AuthPayload = AuthPayload
+  { apUser :: UserInfo
+  , apHasSession :: Bool
+  }
+
+instance FromJSON AuthPayload where
+  parseJSON = withObject "auth payload" $ \o -> do
+    user <- o .: "user"
+    mSession <- o .:? "session"
+    let hasSession = case mSession of
+          Nothing -> False
+          Just Null -> False
+          Just _ -> True
+    pure (AuthPayload user hasSession)
+
+instance FromJSON Reading where
+  parseJSON = withObject "reading" $ \o ->
+    Reading
+      <$> o .: "id"
+      <*> o .: "book"
+      <*> o .: "chapter"
+      <*> o .: "date"
 
 -------------------------------------------------------------------------------
 -- action
 -------------------------------------------------------------------------------
 
 data Action
-    = SetEmail MisoString
-    | SetPassword MisoString
-    | Login
-    | HandleLoginSuccess AuthResponse
-    | HandleLoginError MisoString
-    | Logout
-    | HandleLogoutSuccess Value
-    | HandleLogoutError MisoString
-    | NoOp
+  = Init
+  | SetToday Day
+  | HandleSession Value
+  | SessionError MisoString
+  | SetEmail MisoString
+  | SetPassword MisoString
+  | SignIn
+  | SignUp
+  | SignInGoogle
+  | HandleAuth Value
+  | AuthError MisoString
+  | SignOut
+  | SignedOut
+  | SetYear MisoString
+  | SetBook MisoString
+  | SetChapter MisoString
+  | SetDate MisoString
+  | HandleReadings Value
+  | MarkRead
+  | HandleInserted Value
+  | Unread
+  | HandleDeleted Value
+  | DbError MisoString
 
 -------------------------------------------------------------------------------
 -- update
 -------------------------------------------------------------------------------
 
-updateModel :: Action -> Effect parent Model Action
+updateModel :: Action -> Effect parent props Model Action
 updateModel = \case
-    SetEmail e -> modify $ \m -> m{email = e}
-    SetPassword p -> modify $ \m -> m{password = p}
-    Login -> do
-        m <- get
-        modify $ \m' -> m'{authState = LoggingIn, errorMsg = Nothing}
-        let creds =
-                SignInCredentials
-                    { sicEmail = Email (email m)
-                    , sicPassword = Password (password m)
-                    }
-        signInWithPassword creds HandleLoginSuccess HandleLoginError
-    HandleLoginSuccess AuthResponse{..} ->
-        let user = adUser arData
-         in modify $ \m ->
-                m
-                    { authState = LoggedIn user
-                    , password = ""
-                    , errorMsg = Nothing
-                    }
-    HandleLoginError err ->
-        modify $ \m -> m{authState = LoggedOut, errorMsg = Just err}
-    Logout ->
-        signOut defaultSignOutOptions HandleLogoutSuccess HandleLogoutError
-    HandleLogoutSuccess _ ->
-        modify $ \m ->
+  Init ->
+    io (SetToday . utctDay <$> getCurrentTime)
+  SetToday day -> do
+    let (year, _, _) = toGregorian day
+    modify $ \m ->
+      m
+        { today = day
+        , selectedYear = year
+        , selectedDate = ms (formatTime defaultTimeLocale "%Y-%m-%d" day)
+        }
+    Interop.getSession HandleSession SessionError
+  HandleSession value -> case fromJSON value of
+    Success (SessionPayload (Just user)) -> loginAs user
+    Success (SessionPayload Nothing) ->
+      modify $ \m -> m {authState = LoggedOut}
+    Error err ->
+      modify $ \m ->
+        m {authState = LoggedOut, notice = Just (ErrorNotice (ms err))}
+  SessionError err ->
+    modify $ \m ->
+      m {authState = LoggedOut, notice = Just (ErrorNotice err)}
+  SetEmail e -> modify $ \m -> m {email = e}
+  SetPassword p -> modify $ \m -> m {password = p}
+  SignIn -> do
+    m <- get
+    modify $ \m' -> m' {authState = LoggingIn, notice = Nothing}
+    Interop.signInPassword (email m) (password m) HandleAuth AuthError
+  SignUp -> do
+    m <- get
+    modify $ \m' -> m' {authState = LoggingIn, notice = Nothing}
+    Interop.signUpPassword (email m) (password m) HandleAuth AuthError
+  SignInGoogle -> do
+    modify $ \m -> m {notice = Nothing}
+    Interop.signInGoogle AuthError
+  HandleAuth value -> case fromJSON value of
+    Success AuthPayload {..}
+      | apHasSession -> loginAs apUser
+      | otherwise ->
+          modify $ \m ->
             m
-                { authState = LoggedOut
-                , errorMsg = Nothing
-                }
-    HandleLogoutError err ->
-        modify $ \m -> m{errorMsg = Just err}
-    NoOp -> pure ()
+              { authState = LoggedOut
+              , notice =
+                  Just (InfoNotice "Check your inbox to confirm your account, then sign in.")
+              }
+    Error err ->
+      modify $ \m ->
+        m {authState = LoggedOut, notice = Just (ErrorNotice (ms err))}
+  AuthError err ->
+    modify $ \m ->
+      m {authState = LoggedOut, notice = Just (ErrorNotice err)}
+  SignOut -> Interop.signOutEverywhere SignedOut DbError
+  SignedOut ->
+    modify $ \m ->
+      m
+        { authState = LoggedOut
+        , notice = Nothing
+        , readings = []
+        , lastInserted = Nothing
+        , password = ""
+        }
+  SetYear str -> case readInt str of
+    Nothing -> pure ()
+    Just year -> do
+      modify $ \m -> m {selectedYear = toInteger year}
+      fetchReadings
+  SetBook book ->
+    modify $ \m -> m {selectedBook = book, selectedChapter = 1}
+  SetChapter str -> case readInt str of
+    Nothing -> pure ()
+    Just chapter -> modify $ \m -> m {selectedChapter = chapter}
+  SetDate date -> modify $ \m -> m {selectedDate = date}
+  HandleReadings value -> case fromJSON value of
+    Success (rows :: [Reading]) -> do
+      let sorted = sortOn (\r -> (readingDate r, readingId r)) rows
+      modify $ \m ->
+        let m' = m {readings = sorted, loadingReadings = False}
+         in case reverse sorted of
+              lastRead : _ ->
+                m'
+                  { selectedBook = readingBook lastRead
+                  , selectedChapter = readingChapter lastRead
+                  }
+              [] -> m'
+      redrawCalendar
+    Error err -> do
+      modify $ \m ->
+        m {loadingReadings = False, notice = Just (ErrorNotice (ms err))}
+      redrawCalendar
+  MarkRead -> do
+    m <- get
+    modify $ \m' -> m' {notice = Nothing}
+    Interop.insertReading
+      ( object
+          [ "book" .= selectedBook m
+          , "chapter" .= selectedChapter m
+          , "date" .= selectedDate m
+          ]
+      )
+      HandleInserted
+      DbError
+  HandleInserted value -> do
+    case fromJSON value of
+      Success (row :: Reading) ->
+        modify $ \m -> m {lastInserted = Just (readingId row)}
+      Error _ -> pure ()
+    fetchReadings
+  Unread -> do
+    m <- get
+    case lastInserted m of
+      Nothing -> pure ()
+      Just rid ->
+        deleteFrom
+          "readings"
+          [eq "id" rid]
+          (DeleteOptions Nothing)
+          HandleDeleted
+          DbError
+  HandleDeleted _ -> do
+    modify $ \m -> m {lastInserted = Nothing}
+    fetchReadings
+  DbError err ->
+    modify $ \m -> m {notice = Just (ErrorNotice err)}
+
+-- | Enter the logged-in state and load the current year's readings.
+loginAs :: UserInfo -> Effect parent props Model Action
+loginAs user = do
+  modify $ \m ->
+    m {authState = LoggedIn user, password = "", notice = Nothing}
+  fetchReadings
+
+-- | Load all readings of the selected year (RLS scopes rows to the user).
+fetchReadings :: Effect parent props Model Action
+fetchReadings = do
+  m <- get
+  modify $ \m' -> m' {loadingReadings = True}
+  let year = ms (show (selectedYear m))
+  selectWithFilters
+    "readings"
+    "*"
+    [gte "date" (year <> "-01-01"), lte "date" (year <> "-12-31")]
+    (FetchOptions Nothing Nothing)
+    HandleReadings
+    DbError
+
+-- | Push the readings of the selected year into the Google Charts calendar.
+redrawCalendar :: Effect parent props Model Action
+redrawCalendar = do
+  m <- get
+  io_ (Interop.drawCalendar (calendarRows m))
+
+calendarRows :: Model -> Value
+calendarRows m = toJSON (map row (readings m) `orIfEmpty` [placeholder])
+  where
+    orIfEmpty [] fallback = fallback
+    orIfEmpty rows _ = rows
+    -- an invisible zero-value marker keeps the selected year on screen
+    -- when nothing has been read yet
+    placeholder =
+      object
+        [ "y" .= selectedYear m
+        , "m" .= (1 :: Int)
+        , "d" .= (1 :: Int)
+        , "v" .= (0 :: Int)
+        , "tooltip" .= ("<div style=\"padding:0.5rem;\">No readings yet 🙏</div>" :: MisoString)
+        ]
+    row r =
+      let (y, mo, d) = dateParts (readingDate r)
+       in object
+            [ "y" .= y
+            , "m" .= mo
+            , "d" .= d
+            , "v" .= (1 :: Int)
+            , "tooltip" .= tooltip r
+            ]
+    tooltip r =
+      "<div style=\"font-size:1rem;padding:0.75rem;white-space:nowrap;\">"
+        <> prettyDate (readingDate r)
+        <> ": <strong>"
+        <> readingBook r
+        <> " "
+        <> ms (show (readingChapter r))
+        <> "</strong></div>"
+
+-- | "2026-07-07" -> (2026, 7, 7); falls back to Jan 1 of the parsed year.
+dateParts :: MisoString -> (Integer, Int, Int)
+dateParts str =
+  case parseTimeM True defaultTimeLocale "%Y-%m-%d" (takeWhile (/= 'T') (show' str)) of
+    Just day -> toGregorian (day :: Day)
+    Nothing -> (firstYear, 1, 1)
+  where
+    show' = fromMisoStringToString
+
+-- | "2026-07-07" -> "July 7, 2026" (like the original app's tooltips).
+prettyDate :: MisoString -> MisoString
+prettyDate str =
+  case parseTimeM True defaultTimeLocale "%Y-%m-%d" (takeWhile (/= 'T') (fromMisoStringToString str)) of
+    Just (day :: Day) -> ms (formatTime defaultTimeLocale "%B %-d, %Y" day)
+    Nothing -> str
+
+fromMisoStringToString :: MisoString -> String
+fromMisoStringToString = either (const "") id . fromMisoStringEither
+
+readInt :: MisoString -> Maybe Int
+readInt = either (const Nothing) Just . fromMisoStringEither
 
 -------------------------------------------------------------------------------
 -- view
 -------------------------------------------------------------------------------
 
 viewModel :: Model -> View Model Action
-viewModel Model{..} = case authState of
-    LoggedIn user -> viewLoggedIn user
-    _ -> viewLoginForm email password authState errorMsg
+viewModel m@Model {..} = case authState of
+  LoggedIn user -> viewApp user m
+  Booting -> div_ [P.class_ "centered"] [spinner]
+  _ -> viewLogin m
 
-viewLoginForm :: MisoString -> MisoString -> AuthState -> Maybe MisoString -> View Model Action
-viewLoginForm email_ password_ state errMsg =
-    let isLoggingIn = case state of LoggingIn -> True; _ -> False
-     in div_
-            [P.class_ "login-container"]
-            [ div_
-                [P.class_ "card"]
-                [ h2_ [P.class_ "card-title"] ["Login"]
-                , div_
-                    [P.class_ "card-content"]
-                    [ div_
-                        [P.class_ "field"]
-                        [ label_ [P.for_ "email", P.class_ "label"] ["Email"]
-                        , input_
-                            [ P.type_ "email"
-                            , P.class_ "input"
-                            , P.id_ "email"
-                            , P.placeholder_ "Enter your email"
-                            , P.value_ email_
-                            , P.disabled_ isLoggingIn
-                            , E.onInput SetEmail
-                            ]
-                        ]
-                    , div_
-                        [P.class_ "field"]
-                        [ label_ [P.for_ "password", P.class_ "label"] ["Password"]
-                        , input_
-                            [ P.type_ "password"
-                            , P.class_ "input"
-                            , P.id_ "password"
-                            , P.placeholder_ "Enter your password"
-                            , P.value_ password_
-                            , P.disabled_ isLoggingIn
-                            , E.onInput SetPassword
-                            ]
-                        ]
-                    , case errMsg of
-                        Nothing -> H.text ""
-                        Just msg -> p_ [P.class_ "error-message"] [H.text msg]
-                    , H.button_
-                        [ P.class_ "btn btn-primary"
-                        , P.disabled_ isLoggingIn
-                        , E.onClick Login
-                        ]
-                        [if isLoggingIn then "Logging in..." else "Login"]
-                    ]
-                ]
-            ]
-
-viewLoggedIn :: User -> View Model Action
-viewLoggedIn User{..} =
-    div_
-        [P.class_ "login-container"]
+viewLogin :: Model -> View Model Action
+viewLogin Model {..} =
+  let busy = authState == LoggingIn
+   in div_
+        [P.class_ "centered"]
         [ div_
             [P.class_ "card"]
-            [ h2_ [P.class_ "card-title"] ["Welcome!"]
+            [ h1_ [P.class_ "card-title"] ["Read the Bible 📖"]
             , div_
                 [P.class_ "card-content"]
-                [ p_ [] [H.text ("Logged in as " <> userEmail)]
-                , H.button_
-                    [ P.class_ "btn"
-                    , E.onClick Logout
+                [ H.button_
+                    [P.class_ "btn btn-google", E.onClick SignInGoogle]
+                    ["Sign in with Google"]
+                , div_ [P.class_ "divider"] ["or"]
+                , div_
+                    [P.class_ "field"]
+                    [ label_ [P.for_ "email", P.class_ "label"] ["Email"]
+                    , input_
+                        [ P.type_ "email"
+                        , P.id_ "email"
+                        , P.placeholder_ "you@example.com"
+                        , P.value_ email
+                        , disabledWhen busy
+                        , E.onInput SetEmail
+                        ]
                     ]
-                    ["Logout"]
+                , div_
+                    [P.class_ "field"]
+                    [ label_ [P.for_ "password", P.class_ "label"] ["Password"]
+                    , input_
+                        [ P.type_ "password"
+                        , P.id_ "password"
+                        , P.placeholder_ "••••••••"
+                        , P.value_ password
+                        , disabledWhen busy
+                        , E.onInput SetPassword
+                        ]
+                    ]
+                , viewNotice notice
+                , div_
+                    [P.class_ "row"]
+                    [ H.button_
+                        [P.class_ "btn btn-primary", disabledWhen busy, E.onClick SignIn]
+                        [if busy then "Signing in…" else "Sign in"]
+                    , H.button_
+                        [P.class_ "btn", disabledWhen busy, E.onClick SignUp]
+                        ["Sign up"]
+                    ]
                 ]
             ]
         ]
+
+viewApp :: UserInfo -> Model -> View Model Action
+viewApp user Model {..} =
+  div_
+    [P.class_ "app"]
+    [ div_
+        [P.class_ "toolbar"]
+        [ span_ [P.class_ "tag"] [text (userEmail user)]
+        , a_ [P.class_ "link", P.href_ "#", E.onClickPrevent SignOut] ["Sign out"]
+        ]
+    , div_
+        [P.class_ "controls"]
+        [ selectField "Year" (map (ms . show) [firstYear .. currentYear]) (ms (show selectedYear)) SetYear
+        , selectField "Book" (map fst Bible.books) selectedBook SetBook
+        , selectField "Chapter" (map (ms . show) [1 .. Bible.chaptersOf selectedBook]) (ms (show selectedChapter)) SetChapter
+        , div_
+            [P.class_ "field"]
+            [ label_ [P.class_ "label"] ["Date"]
+            , input_
+                [ P.type_ "date"
+                , P.value_ selectedDate
+                , P.max_ (ms (formatTime defaultTimeLocale "%Y-%m-%d" today))
+                , E.onChange SetDate
+                ]
+            ]
+        , case lastInserted of
+            Just _ ->
+              H.button_
+                [P.class_ "btn btn-danger", E.onClick Unread]
+                ["Undo ↩"]
+            Nothing ->
+              H.button_
+                [P.class_ "btn btn-primary", E.onClick MarkRead]
+                ["Read"]
+        ]
+    , viewNotice notice
+    , div_
+        [P.class_ "chart-wrap"]
+        [ div_ [P.id_ "calendar-chart"] []
+        , if loadingReadings then spinner else text ""
+        ]
+    ]
+  where
+    (currentYear, _, _) = toGregorian today
+
+selectField
+  :: MisoString
+  -> [MisoString]
+  -> MisoString
+  -> (MisoString -> Action)
+  -> View Model Action
+selectField labelText opts current onSelect =
+  div_
+    [P.class_ "field"]
+    [ label_ [P.class_ "label"] [text labelText]
+    , select_
+        [E.onChange onSelect]
+        [ option_ [P.value_ o, P.selected_ (o == current)] [text o]
+        | o <- opts
+        ]
+    ]
+
+viewNotice :: Maybe Notice -> View Model Action
+viewNotice = \case
+  Nothing -> text ""
+  Just (ErrorNotice msg) -> p_ [P.class_ "notice notice-error"] [text msg]
+  Just (InfoNotice msg) -> p_ [P.class_ "notice notice-info"] [text msg]
+
+spinner :: View Model Action
+spinner = div_ [P.class_ "spinner"] []
+
+disabledWhen :: Bool -> Attribute Action
+disabledWhen = boolProp "disabled"
 
 -------------------------------------------------------------------------------
 -- main
 -------------------------------------------------------------------------------
 
+app :: App Model Action
+app = (component mkModel updateModel (const viewModel)) {mount = Just Init}
+
 main :: IO ()
-main =
-    run $ startApp (component mkModel updateModel viewModel)
-#ifndef WASM
-    { scripts =
-       [ Module
-          """
-          import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
-          const supabase_url = 'https://ljknwlqyxougfijkyybq.supabase.co';
-          const supabase_key = 'sb_publishable_Ga2P7LzIDbJjbq3kka6-Ag_eYd91LLk';
-          const supabase = createClient(supabase_url, supabase_key);
-          globalThis['supabase'] = supabase;
-          console.log('Supabase Instance: ', supabase)
-
-          // dmj: usage like: runSupabase('auth','signUp', args, successCallback, errorCallback);
-          globalThis['runSupabase'] = function (namespace, fnName, args, successful, errorful) {
-            const p = ({ data, error }) => {
-                if (data) successful(data);
-                if (error) errorful(error);
-              };
-            if (Array.isArray(args) && !args.length>0) {
-              globalThis['supabase'][namespace][fnName](args).then(p);
-            } else {
-              globalThis['supabase'][namespace][fnName]().then(p);
-            }
-          }
-
-          globalThis['runSupabaseFrom'] = function (namespace, fromArg, fnName, args, successful, errorful) {
-            const p = ({ data, error }) => {
-                if (data) successful(data);
-                if (error) errorful(error);
-              };
-            if (Array.isArray(args) && args.length>0) {
-              globalThis['supabase'][namespace].from(fromArg)[fnName](args).then(p);
-            } else {
-              globalThis['supabase'][namespace].from(fromArg)[fnName]().then(p);
-            }
-          }
-
-          """
-       ]
-    }
-#endif
+main = startApp defaultEvents app
 
 #ifdef WASM
 foreign export javascript "hs_start" main :: IO ()

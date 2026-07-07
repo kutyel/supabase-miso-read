@@ -1,31 +1,37 @@
 cabal-version: 3.0
-name:          supabase-miso-test
+name:          read-the-bible
 version:       0.1
+synopsis:      Bible reading tracker built with Miso + Supabase
+category:      Web
+build-type:    Simple
 
 common options
   default-language:   GHC2021
   default-extensions:
-    CPP
-    TemplateHaskell
+    LambdaCase
+    OverloadedStrings
+    RecordWildCards
 
   if arch(wasm32)
     ghc-options:
       -Wall -O2 -no-hs-main -optl-mexec-model=reactor
-      "-optl-Wl,--export=hs_start" -ddump-splices
+      "-optl-Wl,--export=hs_start"
 
     cpp-options: -DWASM
 
   else
-    ghc-options: -Wall -O2 -ddump-splices
+    ghc-options: -Wall -O2
 
 executable app
   import:         options
   hs-source-dirs: src
   main-is:        Main.hs
+  other-modules:
+    Bible
+    Interop
+
   build-depends:
-    , aeson
     , base
-    , bytestring
     , miso
-    , miso-ui
     , supabase-miso
+    , time

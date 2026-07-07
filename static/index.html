@@ -1,40 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Miso Login</title>
-
-    <!-- Basecoat CSS (miso-ui) -->
-    <link rel="stylesheet" href="https://unpkg.com/basecoat@0.3.6/index.css">
+    <title>Read the Bible 📖</title>
+    <link rel="icon" href="favicon.ico">
 
     <style>
+      :root {
+        --purple: #7f29b8;
+        --purple-dark: #7112b0;
+        --border: #d0d0d7;
+        --muted: #f4f4f6;
+        --danger: #da1e28;
+      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: hsl(var(--muted));
+        background-color: var(--muted);
         font-family: system-ui, -apple-system, sans-serif;
+        color: #161616;
       }
-      .login-container {
-        width: 100%;
-        max-width: 400px;
+      .centered {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
         padding: 1rem;
       }
       .card {
-        background: hsl(var(--card));
-        border: 1px solid hsl(var(--border));
-        border-radius: var(--radius);
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
       }
       .card-title {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 600;
         padding: 1.5rem 1.5rem 0;
         margin: 0;
-        color: hsl(var(--card-foreground));
       }
       .card-content {
         padding: 1.5rem;
@@ -47,52 +53,296 @@
         flex-direction: column;
         gap: 0.375rem;
       }
-      .error-message {
-        color: hsl(var(--destructive));
-        font-size: 0.875rem;
-        margin: 0;
+      .label { font-size: 0.75rem; color: #525252; }
+      input, select {
+        font: inherit;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        background: #fff;
       }
+      input:focus, select:focus { outline: 2px solid var(--purple); border-color: transparent; }
+      .btn {
+        font: inherit;
+        padding: 0.55rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        background: #fff;
+        cursor: pointer;
+      }
+      .btn:hover { background: var(--muted); }
+      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
       .btn-primary {
-        width: 100%;
+        background: var(--purple);
+        border-color: var(--purple);
+        color: #fff;
       }
+      .btn-primary:hover:not(:disabled) { background: var(--purple-dark); }
+      .btn-google { width: 100%; }
+      .btn-danger {
+        color: var(--danger);
+        border-color: var(--danger);
+        background: #fff;
+      }
+      .btn-danger:hover { background: #fff1f1; }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: #8d8d8d;
+        font-size: 0.8rem;
+      }
+      .divider::before, .divider::after {
+        content: "";
+        flex: 1;
+        border-top: 1px solid var(--border);
+      }
+      .row { display: flex; gap: 0.5rem; }
+      .row .btn { flex: 1; }
+      .notice { font-size: 0.875rem; margin: 0; }
+      .notice-error { color: var(--danger); }
+      .notice-info { color: var(--purple); }
+      .app {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+      }
+      .tag {
+        background: #e0e0e0;
+        border-radius: 1rem;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.8rem;
+      }
+      .link { color: var(--purple); }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 0.75rem;
+      }
+      .controls .btn { padding-bottom: 0.6rem; }
+      .chart-wrap {
+        overflow-x: auto;
+        display: flex;
+        justify-content: safe center;
+        min-height: 220px;
+      }
+      .spinner {
+        width: 2rem;
+        height: 2rem;
+        margin: 2rem auto;
+        border: 3px solid var(--border);
+        border-top-color: var(--purple);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 
-    <script type="module">
-
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-        const supabase_url = 'https://ljknwlqyxougfijkyybq.supabase.co';
-        const supabase_key = 'sb_publishable_Ga2P7LzIDbJjbq3kka6-Ag_eYd91LLk';
-        const supabase = createClient(supabase_url, supabase_key);
-        globalThis['supabase'] = supabase;
-        console.log('Supabase Instance: ', supabase);
-
-        // dmj: usage like: runSupabase('auth','signUp', args, successCallback, errorCallback);
-        globalThis['runSupabase'] = function (namespace, fnName, args, successful, errorful) {
-          const p = ({ data, error }) => {
-              if (data) successful(data);
-              if (error) errorful(error);
-            };
-          if (Array.isArray(args) && args.length>0) {
-            globalThis['supabase'][namespace][fnName](args).then(p);
-          } else {
-            globalThis['supabase'][namespace][fnName]().then(p);
-          }
-        }
-
-        globalThis['runSupabaseFrom'] = function (namespace, fromArg, fnName, args, successful, errorful) {
-          const p = ({ data, error }) => {
-              if (data) successful(data);
-              if (error) errorful(error);
-            };
-          if (Array.isArray(args) && args.length>0) {
-            globalThis['supabase'][namespace].from(fromArg)[fnName](args).then(p);
-          } else {
-            globalThis['supabase'][namespace].from(fromArg)[fnName]().then(p);
-          }
-        }
-
+    <!-- Google Charts loader (calendar package) -->
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <script>
+      google.charts.load('current', { packages: ['calendar'] });
     </script>
 
+    <script type="module">
+      import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+      const supabase_url = 'https://ljknwlqyxougfijkyybq.supabase.co';
+      const supabase_key = 'sb_publishable_Ga2P7LzIDbJjbq3kka6-Ag_eYd91LLk';
+      const supabase = createClient(supabase_url, supabase_key);
+      globalThis['supabase'] = supabase;
+
+      /* ------------------------------------------------------------------ *
+       * supabase-miso glue (mirrors js/supabase-miso.js from the library;  *
+       * the library only ships it via cabal js-sources, which the WASM     *
+       * backend does not include, so it lives here instead).               *
+       * ------------------------------------------------------------------ */
+
+      // usage: runSupabase('auth', 'signUp', args, successCallback, errorCallback)
+      globalThis['runSupabase'] = function (namespace, fnName, args, successful, errorful) {
+        globalThis['supabase'][namespace][fnName](...args).then(({ data, error }) => {
+          if (data) successful(data);
+          if (error) errorful(error);
+        });
+      };
+
+      globalThis['runSupabaseFrom'] = function (namespace, fromArg, fnName, args, successful, errorful) {
+        globalThis['supabase'][namespace]
+          .from(fromArg)
+          [fnName](...args)
+          .then(({ data, error }) => {
+            if (data) successful(data);
+            if (error) errorful(error);
+          });
+      };
+
+      globalThis['runSupabaseQuery'] = function (from, fnName, args, successful, errorful) {
+        globalThis['supabase']
+          .from(from)
+          [fnName](...args)
+          .then(({ data, error }) => {
+            if (data) successful(data);
+            if (error) errorful(error);
+          });
+      };
+
+      globalThis['runSupabaseSelect'] = function (table, columns, args, successful, errorful) {
+        let query = globalThis['supabase'].from(table).select(columns);
+
+        const filters = args[0] || [];
+        const fetchOptions = args[1] || {};
+
+        filters.forEach((filter) => {
+          query = query[filter.operator](filter.column, filter.value);
+        });
+
+        if (fetchOptions.count) query = query.count(fetchOptions.count);
+        if (fetchOptions.head) query = query.head();
+
+        query.then((result) => {
+          if (result.error) {
+            errorful(result.error.message);
+          } else {
+            successful(result.data);
+          }
+        });
+      };
+
+      globalThis['runSupabaseUpdate'] = function (table, values, filters, options, successful, errorful) {
+        let query = globalThis['supabase'].from(table).update(values, options);
+
+        filters.forEach((filter) => {
+          query = query[filter.operator](filter.column, filter.value);
+        });
+
+        query.then(({ data, error }) => {
+          if (data) successful(data);
+          if (error) errorful(error);
+        });
+      };
+
+      globalThis['runSupabaseDelete'] = function (table, args, successful, errorful) {
+        let query = globalThis['supabase'].from(table).delete();
+
+        const filters = args[0] || [];
+        const deleteOptions = args[1] || {};
+
+        filters.forEach((filter) => {
+          query = query[filter.operator](filter.column, filter.value);
+        });
+
+        if (deleteOptions.count) query = query.count(deleteOptions.count);
+
+        query.then((result) => {
+          if (result.error) {
+            errorful(result.error.message);
+          } else {
+            successful(result.data);
+          }
+        });
+      };
+
+      /* ------------------------------------------------------------------ *
+       * App-specific helpers (see src/Interop.hs for why these exist).     *
+       * ------------------------------------------------------------------ */
+
+      // Insert a reading and return the created row (so Haskell learns its id).
+      globalThis['appInsertReading'] = function (row, successful, errorful) {
+        supabase
+          .from('readings')
+          .insert(row)
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) errorful(error.message);
+            else successful(data);
+          });
+      };
+
+      // signOut() resolves with { error } only, so the generic glue above
+      // would never fire a callback for it.
+      globalThis['appSignOut'] = function (successful, errorful) {
+        supabase.auth.signOut().then(({ error }) => {
+          if (error) errorful(error.message);
+          else successful(null);
+        });
+      };
+
+      // OAuth redirect flow; on success the browser navigates away.
+      globalThis['appSignInGoogle'] = function (errorful) {
+        supabase.auth
+          .signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin + window.location.pathname },
+          })
+          .then(({ error }) => {
+            if (error) errorful(error.message);
+          });
+      };
+
+      /* ------------------------------------------------------------------ *
+       * Google Charts calendar (options ported from the Svelte app).       *
+       * ------------------------------------------------------------------ */
+
+      const calendarOptions = {
+        title: 'Have you read the Bible today?',
+        tooltip: { isHtml: true },
+        height: 200,
+        width: 950,
+        colorAxis: { minValue: 0, colors: ['#eee', '#7f29b8'] },
+        noDataPattern: { backgroundColor: '#eee', color: '#eee' },
+        calendar: {
+          cellColor: { strokeWidth: 2.5 },
+          monthOutlineColor: { strokeOpacity: 0 },
+          unusedMonthOutlineColor: { strokeOpacity: 0 },
+          dayOfWeekLabel: {
+            fontName: 'Helvetica',
+            opacity: 0.5,
+            fontSize: 12,
+            color: '#aaa',
+          },
+          monthLabel: { fontName: 'Helvetica', opacity: 0.5, fontSize: 12 },
+          daysOfWeek: ' M W F',
+        },
+      };
+
+      // rows: [{ y, m, d, v, tooltip }] — retries until the charts package
+      // is loaded and the container exists; a token cancels stale draws.
+      let drawToken = 0;
+      globalThis['appDrawCalendar'] = function (rows) {
+        const token = ++drawToken;
+        let attempts = 0;
+
+        const attempt = () => {
+          if (token !== drawToken || attempts++ > 100) return;
+          const el = document.getElementById('calendar-chart');
+          const g = globalThis.google;
+          if (!el || !g || !g.visualization || !g.visualization.Calendar) {
+            setTimeout(attempt, 100);
+            return;
+          }
+          const table = new g.visualization.DataTable();
+          table.addColumn({ type: 'date', id: 'Date' });
+          table.addColumn({ type: 'number', id: 'Readings' });
+          table.addColumn({ type: 'string', role: 'tooltip', p: { html: true } });
+          table.addRows(rows.map((r) => [new Date(r.y, r.m - 1, r.d), r.v, r.tooltip]));
+          new g.visualization.Calendar(el).draw(table, calendarOptions);
+        };
+
+        attempt();
+      };
+    </script>
   </head>
 
   <body>
