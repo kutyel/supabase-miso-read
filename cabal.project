@@ -9,7 +9,9 @@ source-repository-package
   location: https://github.com/dmjio/miso.git
   tag: 1.11.0
 
+-- kutyel's fork with the GHC 9.14 compile fix, proposed upstream as
+-- https://github.com/haskell-miso/supabase-miso/pull/10
 source-repository-package
   type: git
-  location: https://github.com/haskell-miso/supabase-miso.git
-  tag: c63b663dba60bdd612bbe042e6bc196b190fc37d
+  location: https://github.com/kutyel/supabase-miso.git
+  tag: 3910c62dad72f95e8301d11bcab333e86f6557cd

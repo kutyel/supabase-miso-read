@@ -1,5 +1,7 @@
 # Read the Bible 📖 — Miso + Supabase
 
+[![NixCI](https://nix-ci.com/badge/gh:kutyel:supabase-miso-read)](https://nix-ci.com/gh:kutyel:supabase-miso-read)
+
 A Bible reading tracker: pick a book, chapter and date, hit **Read**, and watch
 your yearly calendar heatmap fill up. This is a Haskell port of
 [read-the-bible-svelte](https://github.com/kutyel/read-the-bible-svelte)

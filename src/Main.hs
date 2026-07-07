@@ -127,7 +127,7 @@ instance FromJSON SessionPayload where
       Just Null -> pure (SessionPayload Nothing)
       Just sessionValue -> case fromJSON sessionValue of
         Success (SessionUser user) -> pure (SessionPayload (Just user))
-        Error err -> fail err
+        Error err -> fail (fromMisoStringToString err)
 
 -- | Payload of @auth.signInWithPassword@ / @auth.signUp@:
 -- @{ user, session: null | {...} }@. A null session after sign-up means
@@ -421,7 +421,7 @@ viewLogin Model {..} =
                 , div_ [P.class_ "divider"] ["or"]
                 , div_
                     [P.class_ "field"]
-                    [ label_ [P.for_ "email", P.class_ "label"] ["Email"]
+                    [ H.label_ [P.for_ "email", P.class_ "label"] ["Email"]
                     , input_
                         [ P.type_ "email"
                         , P.id_ "email"
@@ -433,7 +433,7 @@ viewLogin Model {..} =
                     ]
                 , div_
                     [P.class_ "field"]
-                    [ label_ [P.for_ "password", P.class_ "label"] ["Password"]
+                    [ H.label_ [P.for_ "password", P.class_ "label"] ["Password"]
                     , input_
                         [ P.type_ "password"
                         , P.id_ "password"
@@ -473,7 +473,7 @@ viewApp user Model {..} =
         , selectField "Chapter" (map (ms . show) [1 .. Bible.chaptersOf selectedBook]) (ms (show selectedChapter)) SetChapter
         , div_
             [P.class_ "field"]
-            [ label_ [P.class_ "label"] ["Date"]
+            [ H.label_ [P.class_ "label"] ["Date"]
             , input_
                 [ P.type_ "date"
                 , P.value_ selectedDate
@@ -510,7 +510,7 @@ selectField
 selectField labelText opts current onSelect =
   div_
     [P.class_ "field"]
-    [ label_ [P.class_ "label"] [text labelText]
+    [ H.label_ [P.class_ "label"] [text labelText]
     , select_
         [E.onChange onSelect]
         [ option_ [P.value_ o, P.selected_ (o == current)] [text o]

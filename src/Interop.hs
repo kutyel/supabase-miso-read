@@ -25,7 +25,7 @@ module Interop
 
 import Control.Monad (void)
 import Miso (Effect, withSink)
-import Miso.DSL (Function, jsg, toJSVal, (#))
+import Miso.DSL (jsg, toJSVal, (#))
 import Miso.JSON (Value, object, (.=))
 import Miso.String (MisoString)
 import Supabase.Miso.Core (errorCallback, runSupabase, successCallback)
