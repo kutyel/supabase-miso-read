@@ -27,15 +27,14 @@ import Miso.JSON
 import Miso.String (MisoString, fromMisoStringEither, ms)
 
 import Bible qualified
+import Interop (deleteFrom, selectWithFilters)
 import Interop qualified
 import Supabase.Miso.Database
   ( DeleteOptions (..)
   , FetchOptions (..)
-  , deleteFrom
   , eq
   , gte
   , lte
-  , selectWithFilters
   )
 
 -------------------------------------------------------------------------------

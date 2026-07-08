@@ -1,3 +1,4 @@
 {
-    "haskell.formattingProvider": "fourmolu"
+    "haskell.formattingProvider": "ormolu",
+    "haskell.manageHLS": "PATH"
 }

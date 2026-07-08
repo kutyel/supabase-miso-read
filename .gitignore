@@ -2,3 +2,4 @@ public
 dist-newstyle
 result
 node_modules
+.direnv
