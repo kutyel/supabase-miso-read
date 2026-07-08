@@ -256,7 +256,7 @@ updateModel = \case
   SetYear str -> case readInt str of
     Nothing -> pure ()
     Just year -> do
-      modify $ \m -> m {selectedYear = toInteger year}
+      modify $ \m -> m {selectedYear = toInteger year, loadingReadings = True}
       fetchReadings
   SetBook book ->
     modify $ \m -> m {selectedBook = book, selectedChapter = 1}
@@ -284,6 +284,7 @@ updateModel = \case
   MarkRead -> do
     m <- get
     modify $ \m' -> m' {notice = Nothing}
+    redrawCalendar
     Interop.insertReading
       ( object
           [ "book" .= selectedBook m
