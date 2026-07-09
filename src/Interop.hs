@@ -29,6 +29,8 @@ module Interop
   , selectWithFilters
   , deleteFrom
   , drawCalendar
+  , isDarkTheme
+  , toggleTheme
   ) where
 
 import Control.Monad (void)
@@ -171,3 +173,15 @@ drawCalendar :: Value -> IO ()
 drawCalendar rows = do
   rows_ <- toJSVal rows
   void $ jsg "globalThis" # "appDrawCalendar" $ [rows_]
+
+-- | Whether the page is currently in dark mode (the @dark@ class on <html>).
+isDarkTheme :: IO Bool
+isDarkTheme = do
+  result <- jsg "globalThis" # "appIsDark" $ ([] :: [Value])
+  fromJSValUnchecked result
+
+-- | Flip between light and dark mode; returns the new state.
+toggleTheme :: IO Bool
+toggleTheme = do
+  result <- jsg "globalThis" # "appToggleTheme" $ ([] :: [Value])
+  fromJSValUnchecked result

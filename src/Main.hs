@@ -55,6 +55,7 @@ data Model = Model
   , loadingReadings :: Bool
   , chartDrawn :: Bool -- ^ once true, keep the old chart visible while reloading
   , lastInserted :: Maybe Int -- ^ id of the reading added last, for undo
+  , darkTheme :: Bool
   }
   deriving (Eq)
 
@@ -101,6 +102,7 @@ mkModel =
     , loadingReadings = False
     , chartDrawn = False
     , lastInserted = Nothing
+    , darkTheme = True
     }
 
 -------------------------------------------------------------------------------
@@ -184,6 +186,8 @@ data Action
   | Unread
   | HandleDeleted Value
   | DbError MisoString
+  | ToggleTheme
+  | ThemeSet Bool
 
 -------------------------------------------------------------------------------
 -- update
@@ -191,7 +195,8 @@ data Action
 
 updateModel :: Action -> Effect parent props Model Action
 updateModel = \case
-  Init ->
+  Init -> do
+    io (ThemeSet <$> Interop.isDarkTheme)
     io (SetToday . utctDay <$> getCurrentTime)
   SetToday day -> do
     let (year, _, _) = toGregorian day
@@ -315,6 +320,13 @@ updateModel = \case
     fetchReadings
   DbError err ->
     modify $ \m -> m {notice = Just (ErrorNotice err)}
+  ToggleTheme ->
+    io (ThemeSet <$> Interop.toggleTheme)
+  ThemeSet dark -> do
+    modify $ \m -> m {darkTheme = dark}
+    m <- get
+    -- the chart hardcodes theme colors, so redraw it in the new palette
+    if chartDrawn m then redrawCalendar else pure ()
 
 -- | Enter the logged-in state and load the current year's readings.
 loginAs :: UserInfo -> Effect parent props Model Action
@@ -357,7 +369,6 @@ calendarRows m = toJSON (map row (readings m) `orIfEmpty` [placeholder])
         , "m" .= (1 :: Int)
         , "d" .= (1 :: Int)
         , "v" .= (0 :: Int)
-        , "tooltip" .= ("<div style=\"padding:0.5rem;\">No readings yet 🙏</div>" :: MisoString)
         ]
     row r =
       let (y, mo, d) = dateParts (readingDate r)
@@ -404,10 +415,26 @@ readInt = either (const Nothing) Just . fromMisoStringEither
 -------------------------------------------------------------------------------
 
 viewModel :: Model -> View Model Action
-viewModel m@Model {..} = case authState of
-  LoggedIn user -> viewApp user m
-  Booting -> div_ [P.class_ "centered"] [spinner]
-  _ -> viewLogin m
+viewModel m@Model {..} =
+  div_
+    []
+    [ themeToggle darkTheme
+    , case authState of
+        LoggedIn user -> viewApp user m
+        Booting -> div_ [P.class_ "centered"] [spinner]
+        _ -> viewLogin m
+    ]
+
+-- | Sun/moon button pinned to the top-right corner.
+themeToggle :: Bool -> View Model Action
+themeToggle dark =
+  H.button_
+    [ P.class_ "theme-toggle btn-icon-ghost"
+    , P.type_ "button"
+    , P.title_ (if dark then "Switch to light mode" else "Switch to dark mode")
+    , E.onClick ToggleTheme
+    ]
+    [if dark then "🌞" else "🌙"]
 
 viewLogin :: Model -> View Model Action
 viewLogin Model {..} =
@@ -415,17 +442,21 @@ viewLogin Model {..} =
    in div_
         [P.class_ "centered"]
         [ div_
-            [P.class_ "card"]
-            [ h1_ [P.class_ "card-title"] ["Read the Bible 📖"]
-            , div_
-                [P.class_ "card-content"]
+            [P.class_ "card w-full max-w-sm"]
+            [ header_
+                []
+                [ h2_ [] ["Read the Bible 📖"]
+                , p_ [] ["Track your daily Bible reading"]
+                ]
+            , section_
+                [P.class_ "form grid gap-6"]
                 [ H.button_
-                    [P.class_ "btn btn-google", E.onClick SignInGoogle]
+                    [P.class_ "btn-outline w-full", P.type_ "button", disabledWhen busy, E.onClick SignInGoogle]
                     ["Sign in with Google"]
-                , div_ [P.class_ "divider"] ["or"]
+                , divider "or"
                 , div_
-                    [P.class_ "field"]
-                    [ H.label_ [P.for_ "email", P.class_ "label"] ["Email"]
+                    [P.class_ "grid gap-2"]
+                    [ H.label_ [P.for_ "email"] ["Email"]
                     , input_
                         [ P.type_ "email"
                         , P.id_ "email"
@@ -436,8 +467,8 @@ viewLogin Model {..} =
                         ]
                     ]
                 , div_
-                    [P.class_ "field"]
-                    [ H.label_ [P.for_ "password", P.class_ "label"] ["Password"]
+                    [P.class_ "grid gap-2"]
+                    [ H.label_ [P.for_ "password"] ["Password"]
                     , input_
                         [ P.type_ "password"
                         , P.id_ "password"
@@ -448,27 +479,36 @@ viewLogin Model {..} =
                         ]
                     ]
                 , viewNotice notice
-                , div_
-                    [P.class_ "row"]
-                    [ H.button_
-                        [P.class_ "btn btn-primary", disabledWhen busy, E.onClick SignIn]
-                        [if busy then "Signing in…" else "Sign in"]
-                    , H.button_
-                        [P.class_ "btn", disabledWhen busy, E.onClick SignUp]
-                        ["Sign up"]
-                    ]
+                ]
+            , footer_
+                [P.class_ "flex gap-2"]
+                [ H.button_
+                    [P.class_ "btn flex-1", P.type_ "button", disabledWhen busy, E.onClick SignIn]
+                    [if busy then "Signing in…" else "Sign in"]
+                , H.button_
+                    [P.class_ "btn-outline flex-1", P.type_ "button", disabledWhen busy, E.onClick SignUp]
+                    ["Sign up"]
                 ]
             ]
         ]
 
+divider :: MisoString -> View Model Action
+divider txt =
+  div_
+    [P.class_ "flex items-center gap-3 text-xs text-muted-foreground"]
+    [ div_ [P.class_ "flex-1 border-t border-border"] []
+    , text txt
+    , div_ [P.class_ "flex-1 border-t border-border"] []
+    ]
+
 viewApp :: UserInfo -> Model -> View Model Action
 viewApp user Model {..} =
   div_
-    [P.class_ "app"]
+    [P.class_ "app mx-auto flex flex-col gap-8 p-6"]
     [ div_
-        [P.class_ "toolbar"]
-        [ span_ [P.class_ "tag"] [text (userEmail user)]
-        , a_ [P.class_ "link", P.href_ "#", E.onClickPrevent SignOut] ["Sign out"]
+        [P.class_ "flex items-center justify-center gap-3"]
+        [ span_ [P.class_ "badge-secondary"] [text (userEmail user)]
+        , H.button_ [P.class_ "btn-sm-ghost", P.type_ "button", E.onClick SignOut] ["Sign out"]
         ]
     , div_
         [P.class_ "controls"]
@@ -476,8 +516,8 @@ viewApp user Model {..} =
         , selectField "Book" (map fst Bible.books) selectedBook SetBook
         , selectField "Chapter" (map (ms . show) [1 .. Bible.chaptersOf selectedBook]) (ms (show selectedChapter)) SetChapter
         , div_
-            [P.class_ "field"]
-            [ H.label_ [P.class_ "label"] ["Date"]
+            [P.class_ "field grid gap-2"]
+            [ H.label_ [] ["Date"]
             , input_
                 [ P.type_ "date"
                 , P.value_ selectedDate
@@ -488,18 +528,22 @@ viewApp user Model {..} =
         , case lastInserted of
             Just _ ->
               H.button_
-                [P.class_ "btn btn-danger", E.onClick Unread]
+                [P.class_ "btn-destructive", P.type_ "button", E.onClick Unread]
                 ["Undo ↩"]
             Nothing ->
               H.button_
-                [P.class_ "btn btn-primary", E.onClick MarkRead]
+                [P.class_ "btn", P.type_ "button", E.onClick MarkRead]
                 ["Read"]
         ]
     , viewNotice notice
     , div_
-        [P.class_ "chart-wrap"]
-        [ div_ [P.id_ "calendar-chart"] []
-        , if loadingReadings && not chartDrawn then spinner else text ""
+        [P.class_ "card"]
+        [ header_ [] [h2_ [] ["Have you read the Bible today?"]]
+        , section_
+            [P.class_ "chart-wrap flex overflow-x-auto"]
+            [ div_ [P.id_ "calendar-chart"] []
+            , if loadingReadings && not chartDrawn then spinner else text ""
+            ]
         ]
     ]
   where
@@ -511,12 +555,12 @@ selectField
   -> MisoString
   -> (MisoString -> Action)
   -> View Model Action
-selectField labelText opts current onSelect =
+selectField labelText opts current toAction =
   div_
-    [P.class_ "field"]
-    [ H.label_ [P.class_ "label"] [text labelText]
+    [P.class_ "field grid gap-2"]
+    [ H.label_ [] [text labelText]
     , select_
-        [E.onChange onSelect]
+        [E.onChange toAction]
         [ option_ [P.value_ o, P.selected_ (o == current)] [text o]
         | o <- opts
         ]
@@ -525,11 +569,11 @@ selectField labelText opts current onSelect =
 viewNotice :: Maybe Notice -> View Model Action
 viewNotice = \case
   Nothing -> text ""
-  Just (ErrorNotice msg) -> p_ [P.class_ "notice notice-error"] [text msg]
-  Just (InfoNotice msg) -> p_ [P.class_ "notice notice-info"] [text msg]
+  Just (ErrorNotice msg) -> p_ [P.class_ "text-sm text-center text-destructive"] [text msg]
+  Just (InfoNotice msg) -> p_ [P.class_ "text-sm text-center text-muted-foreground"] [text msg]
 
 spinner :: View Model Action
-spinner = div_ [P.class_ "spinner"] []
+spinner = div_ [P.class_ "spinner animate-spin size-8 rounded-full mx-auto mt-4"] []
 
 disabledWhen :: Bool -> Attribute Action
 disabledWhen = boolProp "disabled"

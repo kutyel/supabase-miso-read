@@ -1,4 +1,7 @@
 {
     "haskell.formattingProvider": "ormolu",
-    "haskell.manageHLS": "PATH"
+    "haskell.manageHLS": "PATH",
+    "nixEnvSelector.nixFile": "${workspaceFolder}/flake.nix",
+    "nixEnvSelector.useFlakes": true,
+    "nixEnvSelector.flakeShell": "wasm"
 }
