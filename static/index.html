@@ -58,6 +58,9 @@
         color: var(--foreground) !important;
         box-shadow: var(--shadow-md) !important;
       }
+      .google-visualization-tooltip * {
+        color: var(--foreground) !important;
+      }
     </style>
 
     <script>
@@ -229,8 +232,41 @@
       // the card background the chart sits on; #3ecf8e is the Supabase green.
       const calendarPalette = () =>
         globalThis.appIsDark()
-          ? { emptyCell: '#303030', noData: '#1f1f1f', cellStroke: '#171717', label: '#a1a1a1', year: '#3ecf8e' }
-          : { emptyCell: '#e4e4e4', noData: '#f0f0f0', cellStroke: '#fcfcfc', label: '#6e6e6e', year: '#26a069' };
+          ? { noData: '#1f1f1f', cellStroke: '#171717', label: '#a1a1a1', year: '#3ecf8e' }
+          : { noData: '#f0f0f0', cellStroke: '#fcfcfc', label: '#6e6e6e', year: '#26a069' };
+
+      const tooltipDateFormatter = new Intl.DateTimeFormat('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      });
+
+      const dateTooltip = (date) =>
+        `<div style="font-size:1rem;padding:0.75rem;white-space:nowrap;">${tooltipDateFormatter.format(date)}</div>`;
+
+      // Google applies a hard-coded light hover treatment to days absent from
+      // the data table. Add those days as zero-valued rows so they use the
+      // themed color axis and HTML tooltip in both color modes.
+      const completeCalendarRows = (rows) => {
+        const year = rows[0]?.y;
+        if (!Number.isInteger(year)) return rows;
+
+        const present = new Set(rows.map((r) => `${r.y}-${r.m}-${r.d}`));
+        const completed = [...rows];
+        const date = new Date(year, 0, 1);
+
+        while (date.getFullYear() === year) {
+          const y = date.getFullYear();
+          const m = date.getMonth() + 1;
+          const d = date.getDate();
+          if (!present.has(`${y}-${m}-${d}`)) {
+            completed.push({ y, m, d, v: 0, tooltip: dateTooltip(date) });
+          }
+          date.setDate(date.getDate() + 1);
+        }
+
+        return completed;
+      };
 
       const calendarOptions = (container) => {
         const p = calendarPalette();
@@ -248,7 +284,7 @@
           height: Math.round(200 * (cellSize / 16)),
           width: Math.min(950, Math.max(available, cellSize * 53 + 70)),
           backgroundColor: 'transparent',
-          colorAxis: { minValue: 0, maxValue: 1, colors: [p.emptyCell, '#3ecf8e'] },
+          colorAxis: { minValue: 0, maxValue: 1, colors: [p.noData, '#3ecf8e'] },
           noDataPattern: { backgroundColor: p.noData, color: p.noData },
           calendar: {
             cellSize,
@@ -287,7 +323,12 @@
           table.addColumn({ type: 'date', id: 'Date' });
           table.addColumn({ type: 'number', id: 'Readings' });
           table.addColumn({ type: 'string', role: 'tooltip', p: { html: true } });
-          table.addRows(rows.map((r) => [new Date(r.y, r.m - 1, r.d), r.v, r.tooltip]));
+          table.addRows(
+            completeCalendarRows(rows).map((r) => {
+              const date = new Date(r.y, r.m - 1, r.d);
+              return [date, r.v, r.tooltip || dateTooltip(date)];
+            }),
+          );
           new g.visualization.Calendar(el).draw(table, calendarOptions(el.parentElement));
         };
 
