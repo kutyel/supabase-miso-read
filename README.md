@@ -7,7 +7,7 @@ your yearly calendar heatmap fill up. This is a Haskell port of
 [read-the-bible-svelte](https://github.com/kutyel/read-the-bible-svelte)
 (Svelte + Firebase), rebuilt with:
 
-- [miso](https://github.com/dmjio/miso) `1.11.0`, compiled to WebAssembly
+- [miso](https://github.com/dmjio/miso) `1.14.0`, compiled to WebAssembly
 - [supabase-miso](https://github.com/haskell-miso/supabase-miso) for auth + database
 - [Google Charts](https://developers.google.com/chart/interactive/docs/gallery/calendar)
   calendar, driven through Miso's JS FFI (`src/Interop.hs` + the helpers in
@@ -74,3 +74,52 @@ Then open http://localhost:8080.
 
 `.github/workflows/main.yml` builds the wasm bundle with Nix and deploys
 `public/` to GitHub Pages on every push to `main`.
+
+### Custom domain: read-the-bible-in-the.cloud
+
+The app stays hosted on GitHub Pages; Hostinger manages the domain and DNS.
+
+1. In [the repository's Pages settings](https://github.com/kutyel/supabase-miso-read/settings/pages),
+   set **Custom domain** to `read-the-bible-in-the.cloud` and save it before
+   changing DNS. This project deploys through GitHub Actions, so GitHub's Pages
+   setting is authoritative; a `CNAME` file in the artifact is not required
+   and does not configure the domain.
+2. In Hostinger, open **Domains → DNS**, select `read-the-bible-in-the.cloud`,
+   and open **DNS / Nameservers → DNS records**. If the domain uses another
+   provider's nameservers, make these changes at that provider instead.
+   Replace conflicting website records for `@` and `www` with these records
+   (use the default TTL). Leave email records such as MX and TXT in place.
+
+   | Type | Name | Target |
+   | ---- | ---- | ------ |
+   | A | @ | 185.199.108.153 |
+   | A | @ | 185.199.109.153 |
+   | A | @ | 185.199.110.153 |
+   | A | @ | 185.199.111.153 |
+   | CNAME | www | kutyel.github.io |
+
+   If using IPv6, use all four GitHub Pages AAAA records for `@`:
+   `2606:50c0:8000::153`, `2606:50c0:8001::153`,
+   `2606:50c0:8002::153`, and `2606:50c0:8003::153`.
+   Remove any old AAAA records pointing to the previous host even if you
+   choose to use only the A records. The `www` target is a hostname,
+   without `https://` or `/supabase-miso-read/`.
+3. In Supabase **Authentication → URL Configuration**, set **Site URL** to
+   `https://read-the-bible-in-the.cloud/` and add that exact URL to
+   **Redirect URLs**. Keep `http://localhost:8080/` for local development
+   and the old GitHub Pages URL during the transition. The Google sign-in
+   helper already redirects to the current origin and path; no code change
+   is needed. Google's authorized callback remains the Supabase callback
+   `https://ljknwlqyxougfijkyybq.supabase.co/auth/v1/callback`.
+4. Allow DNS to propagate (up to 24 hours), then enable **Enforce HTTPS**
+   in GitHub Pages once the certificate is ready (this can also take up to
+   24 hours). Open `https://read-the-bible-in-the.cloud/` and check sign-in
+   and recording a reading. GitHub Pages redirects the old project URL to
+   the custom domain, and redirects `www` to the chosen apex domain.
+
+All app assets use relative URLs, so the same bundle works at the domain's
+root without a `/supabase-miso-read/` prefix.
+
+References: [GitHub Pages custom domains](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site),
+[Hostinger DNS management](https://www.hostinger.com/support/1583249-how-to-manage-dns-records-at-hostinger/),
+[Supabase redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls).

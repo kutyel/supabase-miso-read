@@ -32,6 +32,6 @@ executable app
 
   build-depends:
     , base
-    , miso
+    , miso == 1.14.0.0
     , supabase-miso
     , time
